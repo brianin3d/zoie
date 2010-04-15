@@ -473,11 +473,11 @@ public class ZoieTest extends ZoieTestCase
     for(int i=0; i<10; i++)
     {
       System.out.println("testDelSet Round: " + i);
-      testDelSetImpl();
+      _testDelSetImpl();
     }
   }
 
-  private void testDelSetImpl() throws ZoieException
+  private void _testDelSetImpl() throws ZoieException
   {
     File idxDir = getIdxDir();
     final ZoieSystem<IndexReader,String> idxSystem = createZoie(idxDir,true, 100);
