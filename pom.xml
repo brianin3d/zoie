@@ -75,7 +75,11 @@
 					<systemPropertyVariables>
 						<conf.dir>conf</conf.dir>
 						<logs>logs</logs>
+						<log.home>logs</log.home>
 					</systemPropertyVariables>
+					<includes>
+						<include>**/ZoieTest.java</include>
+					</includes>
 				</configuration>
 			</plugin>
 		</plugins>
