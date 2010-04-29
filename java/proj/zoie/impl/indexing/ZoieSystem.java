@@ -57,20 +57,30 @@ public class ZoieSystem<R extends IndexReader,V> extends AsyncDataConsumer<V> im
 
 	private static final Logger log = Logger.getLogger(ZoieSystem.class);
 	
-	private static final int DEFAULT_MAX_BATCH_SIZE = 10000;
+	public static final int DEFAULT_MAX_BATCH_SIZE = 10000;
+	public static final long DEFAULT_BATCH_DELAY = 300000;
 	
-	private final DirectoryManager _dirMgr;
-	private final boolean _realtimeIndexing;
-	private final SearchIndexManager<R> _searchIdxMgr;
-	private final ZoieIndexableInterpreter<V> _interpreter;
-	private final Analyzer _analyzer;
-	private final Similarity _similarity;
-	private final Queue<IndexingEventListener> _lsnrList;
-	private final BatchedIndexDataLoader<R, V> _rtdc;
-	private final DiskLuceneIndexDataLoader<R> _diskLoader;
-	
+	private DirectoryManager _dirMgr;
+	private boolean _realtimeIndexing;
+	private SearchIndexManager<R> _searchIdxMgr;
+	private ZoieIndexableInterpreter<V> _interpreter;
+	private Analyzer _analyzer;
+	private Similarity _similarity;
+	private Queue<IndexingEventListener> _lsnrList;
+	private BatchedIndexDataLoader<R, V> _rtdc;
+	private DiskLuceneIndexDataLoader<R> _diskLoader;
+	private DocIDMapperFactory docidMapperFactory_;
+	private IndexReaderDecorator<R> indexReaderDecorator_;
+	private long batchDelay_ = DEFAULT_BATCH_DELAY;
+
+	public ZoieSystem() {
+	}
+
+	////
+
 	/**
 	 * Creates a new ZoieSystem.
+	 * @deprecated
 	 * @param idxDir index directory, mandatory.
 	 * @param interpreter data interpreter, mandatory.
 	 * @param indexReaderDecorator index reader decorator,optional. If not specified, {@link proj.zoie.impl.indexing.DefaultIndexReaderDecorator} is used. 
@@ -88,6 +98,7 @@ public class ZoieSystem<R extends IndexReader,V> extends AsyncDataConsumer<V> im
 	
 	/**
 	 * Creates a new ZoieSystem.
+	 * @deprecated
 	 * @param idxDir index directory, mandatory.
 	 * @param interpreter data interpreter, mandatory.
 	 * @param indexReaderDecorator index reader decorator,optional. If not specified, {@link proj.zoie.impl.indexing.DefaultIndexReaderDecorator} is used. 
@@ -104,6 +115,7 @@ public class ZoieSystem<R extends IndexReader,V> extends AsyncDataConsumer<V> im
 	
 	/**
 	 * Creates a new ZoieSystem.
+	 * @deprecated
      * @param dirMgr Directory manager, mandatory.
      * @param interpreter data interpreter, mandatory.
      * @param indexReaderDecorator index reader decorator,optional. If not specified, {@link proj.zoie.impl.indexing.DefaultIndexReaderDecorator} is used. 
@@ -121,6 +133,7 @@ public class ZoieSystem<R extends IndexReader,V> extends AsyncDataConsumer<V> im
 
 	/**
 	 * Creates a new ZoieSystem.
+	 * @deprecated
      * @param dirMgr Directory manager, mandatory.
      * @param interpreter data interpreter, mandatory.
      * @param indexReaderDecorator index reader decorator,optional. If not specified, {@link proj.zoie.impl.indexing.DefaultIndexReaderDecorator} is used. 
@@ -133,6 +146,7 @@ public class ZoieSystem<R extends IndexReader,V> extends AsyncDataConsumer<V> im
     
     /**
 	 * Creates a new ZoieSystem.
+	 * @deprecated
      * @param idxDir index directory, mandatory.
      * @param interpreter data interpreter, mandatory.
      * @param indexReaderDecorator index reader decorator,optional. If not specified, {@link proj.zoie.impl.indexing.DefaultIndexReaderDecorator} is used. 
@@ -145,6 +159,7 @@ public class ZoieSystem<R extends IndexReader,V> extends AsyncDataConsumer<V> im
     
 	/**
 	 * Creates a new ZoieSystem.
+	 * @deprecated
      * @param dirMgr Directory manager, mandatory.
      * @param interpreter data interpreter, mandatory.
      * @param indexReaderDecorator index reader decorator,optional. If not specified, {@link proj.zoie.impl.indexing.DefaultIndexReaderDecorator} is used. 
@@ -157,41 +172,92 @@ public class ZoieSystem<R extends IndexReader,V> extends AsyncDataConsumer<V> im
      */
     public ZoieSystem(DirectoryManager dirMgr,ZoieIndexableInterpreter<V> interpreter,IndexReaderDecorator<R> indexReaderDecorator,DocIDMapperFactory docidMapperFactory,Analyzer analyzer,Similarity similarity,int batchSize,long batchDelay,boolean rtIndexing)
     {
-		if (dirMgr==null) throw new IllegalArgumentException("null directory manager.");
-		_dirMgr = dirMgr;
-		
-		if (interpreter==null) throw new IllegalArgumentException("null interpreter.");
+		this.setDirectoryManager( dirMgr );
+		this.setInterpreter( interpreter );
+		this.setIndexReaderDecorator( indexReaderDecorator );
+		this.setDocidMapperFactory( docidMapperFactory );
+		this.setAnalyzer( analyzer );
+		this.setSimilarity( similarity );
+		this.setBatchSize( batchSize );
+		this.setBatchDelay( batchDelay );
+		this.setRealtimeIndexing( rtIndexing );
+		this.init();
+	}
 
-		_searchIdxMgr=new SearchIndexManager<R>(_dirMgr,indexReaderDecorator,docidMapperFactory==null ? new DefaultDocIDMapperFactory() : docidMapperFactory);
-		_realtimeIndexing=rtIndexing;
-		_interpreter=interpreter;
-		
-		_analyzer = analyzer== null ? new StandardAnalyzer(Version.LUCENE_CURRENT) : analyzer;
-		_similarity = similarity==null ? new DefaultSimilarity() : similarity;
-		
+	////
+
+	public void init() {
+		if (_dirMgr==null) throw new IllegalArgumentException("null directory manager.");
+		if (_interpreter==null) throw new IllegalArgumentException("null interpreter.");
+
+		_searchIdxMgr = new SearchIndexManager<R>(
+			_dirMgr
+			, this.getIndexReaderDecorator()
+			, this.getDocidMapperFactory()
+		);
+
+		if ( null == _analyzer ) {
+			_analyzer = new StandardAnalyzer(Version.LUCENE_CURRENT);
+		}
+		if ( null == _similarity ) {
+			_similarity = new DefaultSimilarity();
+		}
 		
 		_lsnrList = new ConcurrentLinkedQueue<IndexingEventListener>();
-		
-		super.setBatchSize(Math.max(1,batchSize)); // realtime memory batch size
+	
+		int batchSize = this.getBatchSize();
+		if ( 1 > batchSize ) {
+			super.setBatchSize( ( batchSize = 1 ) );
+		}
+
 		_diskLoader = new DiskLuceneIndexDataLoader<R>(_analyzer, _similarity, _searchIdxMgr);
 		_diskLoader.setOptimizeScheduler(new DefaultOptimizeScheduler(getAdminMBean())); // note that the ZoieSystemAdminMBean zoieAdmin parameter for DefaultOptimizeScheduler is not used.
 		if (_realtimeIndexing)
 		{
-		  _rtdc = new RealtimeIndexDataLoader<R, V>(_diskLoader, Math.max(1,batchSize), DEFAULT_MAX_BATCH_SIZE, batchDelay, _analyzer, _similarity, _searchIdxMgr, _interpreter, _lsnrList);
+		  _rtdc = new RealtimeIndexDataLoader<R, V>(_diskLoader, Math.max(1,batchSize), DEFAULT_MAX_BATCH_SIZE, this.getBatchDelay(), _analyzer, _similarity, _searchIdxMgr, _interpreter, _lsnrList);
 		} else
 		{
-		  _rtdc = new BatchedIndexDataLoader<R, V>(_diskLoader, Math.max(1,batchSize), DEFAULT_MAX_BATCH_SIZE, batchDelay, _searchIdxMgr, _interpreter, _lsnrList);
+		  _rtdc = new BatchedIndexDataLoader<R, V>(_diskLoader, Math.max(1,batchSize), DEFAULT_MAX_BATCH_SIZE, this.getBatchDelay(), _searchIdxMgr, _interpreter, _lsnrList);
 		}
 		super.setDataConsumer(_rtdc);
 		super.setBatchSize(100); // realtime batch size
 	}
+
+	public void init_and_start() {
+		this.init();
+		this.start();
+	}
+
+	public void destroy() {
+		this.shutdown();
+	}
+
+	////
 	
 	public static <V> ZoieSystem<IndexReader,V> buildDefaultInstance(File idxDir,ZoieIndexableInterpreter<V> interpreter,int batchSize,long batchDelay,boolean realtime){
 		return buildDefaultInstance(idxDir, interpreter, new StandardAnalyzer(Version.LUCENE_CURRENT), new DefaultSimilarity(), batchSize, batchDelay, realtime);
 	}
 		
 	public static <V> ZoieSystem<IndexReader,V> buildDefaultInstance(File idxDir,ZoieIndexableInterpreter<V> interpreter,Analyzer analyzer,Similarity similarity,int batchSize,long batchDelay,boolean realtime){
-		return new ZoieSystem<IndexReader,V>(idxDir,interpreter,new DefaultIndexReaderDecorator(),analyzer,similarity,batchSize,batchDelay,realtime);
+		ZoieSystem zoieSystem = new ZoieSystem<IndexReader,V>();
+		zoieSystem.setDirectoryManager( newDirectoryManager( idxDir ) );
+		zoieSystem.setInterpreter( interpreter );
+		zoieSystem.setIndexReaderDecorator( new DefaultIndexReaderDecorator() );
+		zoieSystem.setAnalyzer( analyzer );
+		zoieSystem.setSimilarity( similarity );
+		zoieSystem.setBatchSize( batchSize );
+		zoieSystem.setBatchDelay( batchDelay );
+		zoieSystem.setRealtimeIndexing( realtime );
+		return zoieSystem;
+		//return new ZoieSystem<IndexReader,V>(idxDir,interpreter,new DefaultIndexReaderDecorator(),analyzer,similarity,batchSize,batchDelay,realtime);
+	}
+
+	public void setDirectory( File idxDir ) {
+		this.setDirectoryManager( newDirectoryManager( idxDir ) );
+	}
+
+	public static DirectoryManager newDirectoryManager( File idxDir ) {
+		return new DefaultDirectoryManager( idxDir );
 	}
 	
 	public void addIndexingEventListener(IndexingEventListener lsnr){
@@ -332,6 +398,66 @@ public class ZoieSystem<R extends IndexReader,V> extends AsyncDataConsumer<V> im
 	public ZoieSystemAdminMBean getAdminMBean()
 	{
 		return new MyZoieSystemAdmin();
+	}
+
+	public DocIDMapperFactory getDocidMapperFactory() {
+		return (
+			null == this.docidMapperFactory_
+			? this.docidMapperFactory_ = new DefaultDocIDMapperFactory()
+			: this.docidMapperFactory_
+		);
+	}
+
+	public void setDocidMapperFactory( DocIDMapperFactory docidMapperFactory ) {
+		this.docidMapperFactory_ = docidMapperFactory;
+	}
+
+	public IndexReaderDecorator<R> getIndexReaderDecorator() {
+		return this.indexReaderDecorator_;
+	}
+
+	public void setIndexReaderDecorator( IndexReaderDecorator<R> indexReaderDecorator ) {
+		this.indexReaderDecorator_ = indexReaderDecorator;
+	}
+
+	public long getBatchDelay() {
+		return this.batchDelay_;
+	}
+
+	public void setBatchDelay( long batchDelay ) {
+		this.batchDelay_ = batchDelay;
+	}
+
+	public void setDirectoryManager( DirectoryManager directoryManager ) {
+		this._dirMgr = directoryManager;
+	}
+
+	public DirectoryManager getDirectoryManager() {
+		return this._dirMgr;
+	}
+
+	public void setAnalyzer( Analyzer analyzer ) {
+		this._analyzer = analyzer;
+	}
+
+	public void setSimilarity( Similarity similarity ) {
+		this._similarity = similarity;
+	}
+
+	public boolean getRealtimeIndexing() {
+		return this._realtimeIndexing;
+	}
+
+	public void setRealtimeIndexing( boolean realtimeIndexing ) {
+		this._realtimeIndexing = realtimeIndexing;
+	}
+
+	public ZoieIndexableInterpreter<V> getInterpreter() {
+		return this._interpreter;
+	}
+
+	public void setInterpreter( ZoieIndexableInterpreter<V> interpreter ) {
+		this._interpreter = interpreter;
 	}
 
 	private class MyZoieSystemAdmin implements ZoieSystemAdminMBean
