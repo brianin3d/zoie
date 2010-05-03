@@ -53,6 +53,8 @@ public class TestJMSStreamDataProvider {
 	@Before
 	public void setUpJMSStreamDataProvider() throws JMSException {
 		
+    String confdir = System.getProperty("conf.dir");
+    org.apache.log4j.PropertyConfigurator.configure(confdir+"/log4j.properties");
 		when(dataEventBuilder.buildDataEvent(any(Message.class)))
 			.thenReturn(new DataEvent<Object>(0, new Object()));
 		

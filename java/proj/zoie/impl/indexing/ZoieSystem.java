@@ -42,6 +42,7 @@ import proj.zoie.api.ZoieIndexReader;
 import proj.zoie.api.impl.DefaultDocIDMapperFactory;
 import proj.zoie.api.indexing.DefaultOptimizeScheduler;
 import proj.zoie.api.indexing.IndexReaderDecorator;
+import proj.zoie.api.indexing.IndexingEventListener;
 import proj.zoie.api.indexing.OptimizeScheduler;
 import proj.zoie.api.indexing.ZoieIndexableInterpreter;
 import proj.zoie.impl.indexing.internal.BatchedIndexDataLoader;
@@ -157,16 +158,15 @@ public class ZoieSystem<R extends IndexReader,V> extends AsyncDataConsumer<V> im
     	     zoieConfig.getSimilarity(),zoieConfig.getBatchSize(),zoieConfig.getBatchDelay(),zoieConfig.isRtIndexing());
     }
     
-	/**
-	 * Creates a new ZoieSystem.
-	 * @deprecated
+    /**
+     * Creates a new ZoieSystem.
      * @param dirMgr Directory manager, mandatory.
      * @param interpreter data interpreter, mandatory.
      * @param indexReaderDecorator index reader decorator,optional. If not specified, {@link proj.zoie.impl.indexing.DefaultIndexReaderDecorator} is used. 
      * @param docIdMapperFactory custom docid mapper factory
      * @param analyzer Default analyzer, optional. If not specified, {@link org.apache.lucene.analysis.StandardAnalyzer} is used.
      * @param similarity Default similarity, optional. If not specified, {@link org.apache.lucene.search.DefaultSimilarity} is used.
-     * @param batchSize Number of indexing events to hold before flushing to disk.
+     * @param batchSize desired number of indexing events to hold in buffer before indexing. If we already have this many, we hold back the data provider.
      * @param batchDelay How long to wait before flushing to disk.
      * @param rtIndexing Ensure real-time.
      */
